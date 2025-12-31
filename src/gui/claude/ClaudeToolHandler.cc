@@ -242,6 +242,10 @@ ToolResult ToolHandler::writeEditor(const QString& content)
     return {false, "No active editor", true};
   }
 
+  if (content.isEmpty()) {
+    return {false, "Content is empty", true};
+  }
+
   // Use setText which handles undo properly
   editor->setText(content);
   return {true, "Editor content updated successfully", false};

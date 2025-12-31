@@ -52,9 +52,11 @@ private slots:
   void onStreamStarted();
   void onContentDelta(const QString& text);
   void onToolUseStarted(const QString& toolId, const QString& toolName);
+  void onToolUseInputDelta(const QString& toolId, const QString& partialJson);
   void onToolUseComplete(const QString& toolId, const QString& toolName, const QJsonObject& input);
   void onMessageComplete(const QJsonObject& message);
   void onError(const QString& error);
+  void onRateLimitWaiting(int secondsRemaining);
   void onHistoryChanged();
 
 private:
@@ -73,6 +75,11 @@ private:
   void sendCurrentMessage();
   void processToolUse(const QString& toolId, const QString& toolName, const QJsonObject& input);
   void sendToolResult(const QString& toolId, const QString& result, bool isError);
+
+  // Streaming edit helpers
+  void applyStreamingEdit(const QString& content);
+  QString extractPartialContent(const QString& partialJson);
+  int findFirstDifferentLine(const QString& original, const QString& modified);
 
   QString getSystemPrompt() const;
 
@@ -107,6 +114,13 @@ private:
     QJsonObject input;
   };
   QVector<PendingToolUse> pendingToolUses_;
+
+  // Streaming edit state
+  QString currentStreamingToolName_;
+  QString streamingToolJson_;
+  QString originalContent_;
+  int lastAppliedLength_{0};
+  int editStartLine_{0};
 };
 
 } // namespace Claude

@@ -18,7 +18,9 @@
 
 #include "gui/MainWindow.h"
 #include "gui/Editor.h"
+#include "gui/ScintillaEditor.h"
 #include "core/Settings.h"
+#include "gui/SettingsWriter.h"
 
 namespace Claude {
 
@@ -36,9 +38,11 @@ Widget::Widget(MainWindow *mainWindow, QWidget *parent)
   connect(apiClient_, &ApiClient::streamStarted, this, &Widget::onStreamStarted);
   connect(apiClient_, &ApiClient::contentDelta, this, &Widget::onContentDelta);
   connect(apiClient_, &ApiClient::toolUseStarted, this, &Widget::onToolUseStarted);
+  connect(apiClient_, &ApiClient::toolUseInputDelta, this, &Widget::onToolUseInputDelta);
   connect(apiClient_, &ApiClient::toolUseComplete, this, &Widget::onToolUseComplete);
   connect(apiClient_, &ApiClient::messageComplete, this, &Widget::onMessageComplete);
   connect(apiClient_, &ApiClient::errorOccurred, this, &Widget::onError);
+  connect(apiClient_, &ApiClient::rateLimitWaiting, this, &Widget::onRateLimitWaiting);
 
   // Connect history changes
   connect(history_, &History::historyChanged, this, &Widget::onHistoryChanged);
@@ -231,8 +235,9 @@ void Widget::onSettingsClicked()
 
   if (ok && !apiKey.isEmpty()) {
     setApiKey(apiKey);
-    // Save to settings
+    // Save to settings and persist
     Settings::Settings::claudeApiKey.setValue(apiKey.toStdString());
+    Settings::Settings::visit(SettingsWriter());
   }
 }
 
@@ -249,7 +254,39 @@ void Widget::onContentDelta(const QString& text)
 void Widget::onToolUseStarted(const QString& toolId, const QString& toolName)
 {
   Q_UNUSED(toolId);
+  currentStreamingToolName_ = toolName;
+  streamingToolJson_.clear();
+  lastAppliedLength_ = 0;
+
+  if (toolName == "write_editor" || toolName == "replace_selection") {
+    // Store original content for diff comparison
+    if (mainWindow_->activeEditor) {
+      originalContent_ = mainWindow_->activeEditor->toPlainText();
+    }
+  }
+
   appendToStreamingBubble(QString("\n[Using tool: %1...]\n").arg(toolName));
+}
+
+void Widget::onToolUseInputDelta(const QString& toolId, const QString& partialJson)
+{
+  Q_UNUSED(toolId);
+
+  // Only process for write_editor and replace_selection tools
+  if (currentStreamingToolName_ != "write_editor" &&
+      currentStreamingToolName_ != "replace_selection") {
+    return;
+  }
+
+  // Accumulate JSON and try to extract content field
+  streamingToolJson_.append(partialJson);
+
+  // Try to parse partial content from accumulated JSON
+  QString partialContent = extractPartialContent(streamingToolJson_);
+  if (!partialContent.isEmpty() && partialContent.length() > lastAppliedLength_) {
+    applyStreamingEdit(partialContent);
+    lastAppliedLength_ = partialContent.length();
+  }
 }
 
 void Widget::onToolUseComplete(const QString& toolId, const QString& toolName, const QJsonObject& input)
@@ -259,6 +296,20 @@ void Widget::onToolUseComplete(const QString& toolId, const QString& toolName, c
   pending.toolName = toolName;
   pending.input = input;
   pendingToolUses_.append(pending);
+
+  // Clear streaming state
+  currentStreamingToolName_.clear();
+  streamingToolJson_.clear();
+  originalContent_.clear();
+  lastAppliedLength_ = 0;
+
+  // Schedule highlight fade-out after 3 seconds
+  QTimer::singleShot(3000, this, [this]() {
+    ScintillaEditor* scintilla = qobject_cast<ScintillaEditor*>(mainWindow_->activeEditor);
+    if (scintilla) {
+      scintilla->clearClaudeHighlights();
+    }
+  });
 }
 
 void Widget::onMessageComplete(const QJsonObject& message)
@@ -328,6 +379,15 @@ void Widget::onError(const QString& error)
   addMessageBubble("error", "Error: " + error);
 }
 
+void Widget::onRateLimitWaiting(int secondsRemaining)
+{
+  statusLabel_->setText(QString("Rate limited - retrying in %1s...").arg(secondsRemaining));
+  statusLabel_->setStyleSheet("color: orange;");
+
+  // Add info message to chat
+  addMessageBubble("tool-result", QString("Rate limited by API. Automatically retrying in %1 seconds...").arg(secondsRemaining));
+}
+
 void Widget::onHistoryChanged()
 {
   // Rebuild the chat display from history
@@ -392,24 +452,24 @@ QWidget* Widget::createMessageBubble(const QString& role, const QString& content
   bubble->setReadOnly(true);
   bubble->setFrameShape(QFrame::NoFrame);
 
+  // Disable scroll bars - let the bubble expand to fit content
+  bubble->setVerticalScrollBarPolicy(Qt::ScrollBarAlwaysOff);
+  bubble->setHorizontalScrollBarPolicy(Qt::ScrollBarAlwaysOff);
+
   // Style based on role
-  QString bgColor, textColor, alignment;
+  QString bgColor, textColor;
   if (role == "user") {
     bgColor = "#e3f2fd";
     textColor = "#1565c0";
-    alignment = "right";
   } else if (role == "assistant") {
     bgColor = "#f5f5f5";
     textColor = "#212121";
-    alignment = "left";
   } else if (role == "error") {
     bgColor = "#ffebee";
     textColor = "#c62828";
-    alignment = "left";
   } else {
     bgColor = "#fff3e0";
     textColor = "#e65100";
-    alignment = "left";
   }
 
   bubble->setStyleSheet(QString(
@@ -423,12 +483,13 @@ QWidget* Widget::createMessageBubble(const QString& role, const QString& content
 
   bubble->setPlainText(content);
 
-  // Adjust height to content
-  QFontMetrics fm(bubble->font());
-  int lineCount = content.count('\n') + 1;
-  int textHeight = fm.lineSpacing() * lineCount + 24;
-  bubble->setMinimumHeight(qMin(textHeight, 200));
-  bubble->setMaximumHeight(400);
+  // Calculate height based on document size
+  bubble->document()->setTextWidth(bubble->viewport()->width());
+  int docHeight = bubble->document()->size().height();
+  int contentHeight = docHeight + 20;  // Add padding
+
+  // Set fixed height based on content (no scroll bars needed)
+  bubble->setFixedHeight(contentHeight);
 
   return bubble;
 }
@@ -450,6 +511,11 @@ void Widget::startStreamingBubble()
   currentStreamingBubble_->setOpenExternalLinks(true);
   currentStreamingBubble_->setReadOnly(true);
   currentStreamingBubble_->setFrameShape(QFrame::NoFrame);
+
+  // Disable scroll bars - let the bubble expand to fit content
+  currentStreamingBubble_->setVerticalScrollBarPolicy(Qt::ScrollBarAlwaysOff);
+  currentStreamingBubble_->setHorizontalScrollBarPolicy(Qt::ScrollBarAlwaysOff);
+
   currentStreamingBubble_->setStyleSheet(
     "QTextBrowser {"
     "  background-color: #f5f5f5;"
@@ -459,7 +525,6 @@ void Widget::startStreamingBubble()
     "}"
   );
   currentStreamingBubble_->setMinimumHeight(40);
-  currentStreamingBubble_->setMaximumHeight(400);
 
   currentStreamingText_.clear();
 
@@ -476,11 +541,13 @@ void Widget::appendToStreamingBubble(const QString& text)
   currentStreamingText_.append(text);
   currentStreamingBubble_->setPlainText(currentStreamingText_);
 
-  // Adjust height
-  QFontMetrics fm(currentStreamingBubble_->font());
-  int lineCount = currentStreamingText_.count('\n') + 1;
-  int textHeight = fm.lineSpacing() * lineCount + 24;
-  currentStreamingBubble_->setMinimumHeight(qMin(textHeight, 200));
+  // Calculate height based on document size
+  currentStreamingBubble_->document()->setTextWidth(currentStreamingBubble_->viewport()->width());
+  int docHeight = currentStreamingBubble_->document()->size().height();
+  int contentHeight = docHeight + 20;  // Add padding
+
+  // Update height to fit content
+  currentStreamingBubble_->setFixedHeight(qMax(40, contentHeight));
 
   scrollToBottom();
 }
@@ -499,7 +566,9 @@ void Widget::addToolUseBubble(const QString& toolName, const QString& result)
 
 void Widget::processToolUse(const QString& toolId, const QString& toolName, const QJsonObject& input)
 {
+  qDebug() << "Claude: Processing tool" << toolName << "with input keys:" << input.keys();
   ToolResult result = toolHandler_->executeTool(toolName, input);
+  qDebug() << "Claude: Tool result - success:" << result.success << "error:" << result.isError;
 
   // Add tool result to history
   Message toolResultMsg;
@@ -529,23 +598,122 @@ QString Widget::getSystemPrompt() const
     "OpenSCAD uses a functional programming language for creating 3D models through "
     "constructive solid geometry (CSG). Key concepts include:\n"
     "- Primitives: cube(), sphere(), cylinder(), polyhedron()\n"
-    "- Transformations: translate(), rotate(), scale(), mirror()\n"
+    "- Transformations: translate(), rotate(), scale(), mirror(), multimatrix(), minkowski(), hull(), color(), resize()\n"
     "- Boolean operations: union(), difference(), intersection()\n"
     "- 2D shapes: circle(), square(), polygon(), text()\n"
     "- Extrusions: linear_extrude(), rotate_extrude()\n"
     "- Modules and functions for code reuse\n"
     "- Special variables: $fn, $fa, $fs for resolution control\n\n"
-    "You have tools to:\n"
-    "- Read and modify the code in the editor\n"
-    "- Run preview (F5) and full render (F6)\n"
-    "- Check console output and error logs\n\n"
-    "When helping users:\n"
-    "1. Read the current code first to understand context\n"
-    "2. Make targeted changes rather than rewriting everything\n"
-    "3. Run preview to check for errors after changes\n"
-    "4. Explain what you're doing and why\n"
-    "5. Use proper OpenSCAD syntax and best practices"
+    "You have these tools:\n"
+    "- read_editor: Read the current code in the editor\n"
+    "- write_editor: Replace all editor content with new code\n"
+    "- run_preview: Run F5 preview compilation\n"
+    "- run_render: Run F6 full render\n"
+    "- get_console: Get console output (compilation messages, warnings, echo output)\n"
+    "- get_errors: Get structured error log with file, line numbers, and messages\n\n"
+    "CRITICAL WORKFLOW - You MUST follow this pattern:\n"
+    "1. Read the current code first (read_editor) to understand context\n"
+    "2. Make your changes (write_editor)\n"
+    "3. Run preview (run_preview) to compile the code\n"
+    "4. ALWAYS check for errors immediately after preview (get_errors and get_console)\n"
+    "5. If there are ANY errors, fix them immediately and repeat steps 2-4\n"
+    "6. Only report success to the user once the code compiles without errors\n\n"
+    "NEVER leave the user with broken code. If your changes cause errors, you MUST fix them before finishing."
   );
+}
+
+void Widget::applyStreamingEdit(const QString& content)
+{
+  EditorInterface* editor = mainWindow_->activeEditor;
+  if (!editor) return;
+
+  ScintillaEditor* scintilla = qobject_cast<ScintillaEditor*>(editor);
+  if (!scintilla) return;
+
+  // Check that the scintilla widget is properly initialized
+  if (!scintilla->qsci) return;
+
+  // Apply the content
+  editor->setText(content);
+
+  // Calculate diff and highlight additions
+  int newLines = content.count('\n');
+
+  // Find where content starts to differ
+  int firstDiffLine = findFirstDifferentLine(originalContent_, content);
+  if (firstDiffLine >= 0) {
+    // Clear previous highlights
+    scintilla->clearClaudeHighlights();
+
+    // Add margin markers for new/changed lines
+    for (int i = firstDiffLine; i <= newLines; ++i) {
+      scintilla->highlightClaudeAddition(i);
+    }
+
+    // Scroll to show the new content at the bottom of the visible area
+    scintilla->scrollToLine(newLines);
+  }
+}
+
+QString Widget::extractPartialContent(const QString& partialJson)
+{
+  // Tool input JSON looks like: {"content": "...code here..."}
+  // We want to extract content even if JSON is incomplete
+
+  int contentStart = partialJson.indexOf("\"content\"");
+  if (contentStart < 0) return QString();
+
+  int colonPos = partialJson.indexOf(':', contentStart);
+  if (colonPos < 0) return QString();
+
+  int quoteStart = partialJson.indexOf('"', colonPos);
+  if (quoteStart < 0) return QString();
+
+  // Find matching end quote (handling JSON escapes)
+  QString content;
+  bool escaped = false;
+  for (int i = quoteStart + 1; i < partialJson.length(); ++i) {
+    QChar c = partialJson[i];
+    if (escaped) {
+      if (c == 'n') content += '\n';
+      else if (c == 't') content += '\t';
+      else if (c == 'r') content += '\r';
+      else if (c == '\\') content += '\\';
+      else if (c == '"') content += '"';
+      else if (c == '/') content += '/';
+      else content += c;
+      escaped = false;
+    } else if (c == '\\') {
+      escaped = true;
+    } else if (c == '"') {
+      break;  // End of string
+    } else {
+      content += c;
+    }
+  }
+
+  return content;
+}
+
+int Widget::findFirstDifferentLine(const QString& original, const QString& modified)
+{
+  QStringList origLines = original.split('\n');
+  QStringList modLines = modified.split('\n');
+
+  int minLines = qMin(origLines.size(), modLines.size());
+
+  for (int i = 0; i < minLines; ++i) {
+    if (origLines[i] != modLines[i]) {
+      return i;
+    }
+  }
+
+  // If all common lines match, difference starts at the first new line
+  if (modLines.size() > origLines.size()) {
+    return origLines.size();
+  }
+
+  return -1;  // No difference found
 }
 
 } // namespace Claude

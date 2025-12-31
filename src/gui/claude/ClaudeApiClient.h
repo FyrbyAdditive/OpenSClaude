@@ -18,6 +18,7 @@
 #include <QNetworkAccessManager>
 #include <QNetworkReply>
 #include <QByteArray>
+#include <QTimer>
 
 namespace Claude {
 
@@ -52,11 +53,13 @@ signals:
   void toolUseComplete(const QString& toolId, const QString& toolName, const QJsonObject& input);
   void messageComplete(const QJsonObject& fullMessage);
   void errorOccurred(const QString& error);
+  void rateLimitWaiting(int secondsRemaining);
 
 private slots:
   void onReadyRead();
   void onFinished();
   void onError(QNetworkReply::NetworkError error);
+  void onRetryTimer();
 
 private:
   void parseSSEChunk(const QByteArray& chunk);
@@ -85,6 +88,17 @@ private:
 
   // Current text accumulation
   QString currentTextContent_;
+
+  // Rate limit retry handling
+  QTimer *retryTimer_{nullptr};
+  QString pendingModelId_;
+  QJsonArray pendingMessages_;
+  QJsonArray pendingTools_;
+  QString pendingSystemPrompt_;
+  int pendingMaxTokens_{4096};
+  int retryCount_{0};
+  static constexpr int MAX_RETRIES = 3;
+  static constexpr int DEFAULT_RETRY_DELAY_MS = 30000; // 30 seconds
 
   static constexpr const char* API_URL = "https://api.anthropic.com/v1/messages";
   static constexpr const char* API_VERSION = "2023-06-01";

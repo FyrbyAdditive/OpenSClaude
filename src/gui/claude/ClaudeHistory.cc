@@ -82,39 +82,120 @@ QJsonArray History::toApiMessages() const
 {
   QJsonArray apiMessages;
 
-  // Group consecutive tool_use/tool_result pairs correctly
+  // Group messages correctly:
+  // - Assistant text + following ToolUse(s) = single assistant message with content array
+  // - ToolResult(s) = single user message with content array
   int i = 0;
   while (i < messages_.size()) {
     const Message& msg = messages_[i];
 
-    if (msg.role == Message::Role::ToolUse) {
-      // Tool use from assistant - need to bundle with any text before it
+    if (msg.role == Message::Role::User) {
+      // Regular user message
+      apiMessages.append(msg.toApiFormat());
+      ++i;
+    } else if (msg.role == Message::Role::Assistant) {
+      // Assistant message - check if followed by ToolUse messages
       QJsonObject assistantMsg;
       assistantMsg["role"] = "assistant";
-
       QJsonArray contentArray;
 
-      // Add the tool use
-      QJsonObject toolUse;
-      toolUse["type"] = "tool_use";
-      toolUse["id"] = msg.toolId;
-      toolUse["name"] = msg.toolName;
-      toolUse["input"] = msg.toolInput;
-      contentArray.append(toolUse);
+      // Add text block if there's content
+      if (!msg.content.isEmpty()) {
+        QJsonObject textBlock;
+        textBlock["type"] = "text";
+        textBlock["text"] = msg.content;
+        contentArray.append(textBlock);
+      }
+
+      ++i;
+
+      // Collect any immediately following ToolUse messages
+      while (i < messages_.size() && messages_[i].role == Message::Role::ToolUse) {
+        const Message& toolMsg = messages_[i];
+        QJsonObject toolUse;
+        toolUse["type"] = "tool_use";
+        toolUse["id"] = toolMsg.toolId;
+        toolUse["name"] = toolMsg.toolName;
+        toolUse["input"] = toolMsg.toolInput;
+        contentArray.append(toolUse);
+        ++i;
+      }
 
       assistantMsg["content"] = contentArray;
       apiMessages.append(assistantMsg);
 
-      ++i;
-
-      // Look for corresponding tool result
+      // Now collect any following ToolResult messages into a single user message
       if (i < messages_.size() && messages_[i].role == Message::Role::ToolResult) {
-        const Message& resultMsg = messages_[i];
-
         QJsonObject userMsg;
         userMsg["role"] = "user";
-
         QJsonArray resultArray;
+
+        while (i < messages_.size() && messages_[i].role == Message::Role::ToolResult) {
+          const Message& resultMsg = messages_[i];
+          QJsonObject toolResult;
+          toolResult["type"] = "tool_result";
+          toolResult["tool_use_id"] = resultMsg.toolId;
+          toolResult["content"] = resultMsg.content;
+          if (resultMsg.isError) {
+            toolResult["is_error"] = true;
+          }
+          resultArray.append(toolResult);
+          ++i;
+        }
+
+        userMsg["content"] = resultArray;
+        apiMessages.append(userMsg);
+      }
+    } else if (msg.role == Message::Role::ToolUse) {
+      // Standalone ToolUse (shouldn't happen normally, but handle gracefully)
+      QJsonObject assistantMsg;
+      assistantMsg["role"] = "assistant";
+      QJsonArray contentArray;
+
+      while (i < messages_.size() && messages_[i].role == Message::Role::ToolUse) {
+        const Message& toolMsg = messages_[i];
+        QJsonObject toolUse;
+        toolUse["type"] = "tool_use";
+        toolUse["id"] = toolMsg.toolId;
+        toolUse["name"] = toolMsg.toolName;
+        toolUse["input"] = toolMsg.toolInput;
+        contentArray.append(toolUse);
+        ++i;
+      }
+
+      assistantMsg["content"] = contentArray;
+      apiMessages.append(assistantMsg);
+
+      // Collect following ToolResults
+      if (i < messages_.size() && messages_[i].role == Message::Role::ToolResult) {
+        QJsonObject userMsg;
+        userMsg["role"] = "user";
+        QJsonArray resultArray;
+
+        while (i < messages_.size() && messages_[i].role == Message::Role::ToolResult) {
+          const Message& resultMsg = messages_[i];
+          QJsonObject toolResult;
+          toolResult["type"] = "tool_result";
+          toolResult["tool_use_id"] = resultMsg.toolId;
+          toolResult["content"] = resultMsg.content;
+          if (resultMsg.isError) {
+            toolResult["is_error"] = true;
+          }
+          resultArray.append(toolResult);
+          ++i;
+        }
+
+        userMsg["content"] = resultArray;
+        apiMessages.append(userMsg);
+      }
+    } else if (msg.role == Message::Role::ToolResult) {
+      // Standalone ToolResult (shouldn't happen, but handle gracefully)
+      QJsonObject userMsg;
+      userMsg["role"] = "user";
+      QJsonArray resultArray;
+
+      while (i < messages_.size() && messages_[i].role == Message::Role::ToolResult) {
+        const Message& resultMsg = messages_[i];
         QJsonObject toolResult;
         toolResult["type"] = "tool_result";
         toolResult["tool_use_id"] = resultMsg.toolId;
@@ -123,15 +204,13 @@ QJsonArray History::toApiMessages() const
           toolResult["is_error"] = true;
         }
         resultArray.append(toolResult);
-
-        userMsg["content"] = resultArray;
-        apiMessages.append(userMsg);
-
         ++i;
       }
+
+      userMsg["content"] = resultArray;
+      apiMessages.append(userMsg);
     } else {
-      // Regular user or assistant message
-      apiMessages.append(msg.toApiFormat());
+      // Unknown role, skip
       ++i;
     }
   }

@@ -78,6 +78,11 @@ public:
   void clearAllSelectionIndicators() override;
   void clearSelectionIndicators(int lineFrom, int colFrom, int lineTo, int colTo);
 
+  // Claude AI integration methods
+  void highlightClaudeAddition(int line);
+  void clearClaudeHighlights();
+  void scrollToLine(int line);
+
   void setFocus() override;
   void setupAutoComplete(const bool forceOff = false);
 
@@ -169,6 +174,10 @@ private:
     11;  // Represents the active selected area text 11 - 12
   static const int selectionIndicatorIsImpactedNumber =
     14;  // Represents the impacted selected area text 14-15-16
+
+  // Claude AI integration indicators
+  static const int claudeAdditionIndicator = 17;  // Green highlight for additions
+  static const int claudeAdditionMarker = 26;     // Green + margin marker
 
   bool indicatorsActive = false;
 

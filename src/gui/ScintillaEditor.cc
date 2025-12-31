@@ -205,8 +205,17 @@ ScintillaEditor::ScintillaEditor(QWidget *parent) : EditorInterface(parent)
   qsci->indicatorDefine(QsciScintilla::RoundBoxIndicator, selectionIndicatorIsImpactedNumber + 1);
   qsci->indicatorDefine(QsciScintilla::RoundBoxIndicator, selectionIndicatorIsImpactedNumber + 2);
 
+  // Claude AI integration indicator - green background for additions
+  qsci->indicatorDefine(QsciScintilla::StraightBoxIndicator, claudeAdditionIndicator);
+  qsci->setIndicatorForegroundColor(QColor(0, 180, 0, 80), claudeAdditionIndicator);
+
   qsci->markerDefine(QsciScintilla::Circle, errMarkerNumber);
   qsci->markerDefine(QsciScintilla::Bookmark, bmMarkerNumber);
+
+  // Claude AI integration marker - green + for additions
+  qsci->markerDefine('+', claudeAdditionMarker);
+  qsci->setMarkerBackgroundColor(QColor(0, 180, 0, 100), claudeAdditionMarker);
+  qsci->setMarkerForegroundColor(QColor(255, 255, 255), claudeAdditionMarker);
 
   qsci->markerDefine('1', selectionMarkerLevelNumber);
   qsci->markerDefine('2', selectionMarkerLevelNumber + 1);
@@ -226,7 +235,7 @@ ScintillaEditor::ScintillaEditor(QWidget *parent) : EditorInterface(parent)
     symbolMargin, 1 << errMarkerNumber | 1 << bmMarkerNumber | 1 << selectionMarkerLevelNumber |
                     1 << (selectionMarkerLevelNumber + 1) | 1 << (selectionMarkerLevelNumber + 2) |
                     1 << (selectionMarkerLevelNumber + 3) | 1 << (selectionMarkerLevelNumber + 4) |
-                    1 << (selectionMarkerLevelNumber + 5));
+                    1 << (selectionMarkerLevelNumber + 5) | 1 << claudeAdditionMarker);
 
 #if ENABLE_LEXERTL
   auto newLexer = new ScadLexer2(this);
@@ -1614,4 +1623,51 @@ void ScintillaEditor::clearSelectionIndicators(int lineFrom, int colFrom, int li
 
   qsci->clearIndicatorRange(lineFrom, colFrom, lineTo, colTo, selectionIndicatorIsActiveNumber);
   qsci->clearIndicatorRange(lineFrom, colFrom, lineTo, colTo, selectionIndicatorIsActiveNumber + 1);
+}
+
+/**
+ * @brief Highlight a line as a Claude AI addition (green background + margin marker)
+ */
+void ScintillaEditor::highlightClaudeAddition(int line)
+{
+  if (!qsci) return;
+
+  // Add green + margin marker
+  qsci->markerAdd(line, claudeAdditionMarker);
+
+  // Highlight the entire line with green background
+  int startPos = qsci->positionFromLineIndex(line, 0);
+  int endPos = qsci->positionFromLineIndex(line + 1, 0);
+  if (endPos < 0) endPos = qsci->length();
+
+  qsci->SendScintilla(QsciScintilla::SCI_SETINDICATORCURRENT, claudeAdditionIndicator);
+  qsci->SendScintilla(QsciScintilla::SCI_INDICATORFILLRANGE, startPos, endPos - startPos);
+
+  updateSymbolMarginVisibility();
+}
+
+/**
+ * @brief Clear all Claude AI highlighting
+ */
+void ScintillaEditor::clearClaudeHighlights()
+{
+  if (!qsci) return;
+
+  qsci->markerDeleteAll(claudeAdditionMarker);
+  qsci->SendScintilla(QsciScintilla::SCI_SETINDICATORCURRENT, claudeAdditionIndicator);
+  qsci->SendScintilla(QsciScintilla::SCI_INDICATORCLEARRANGE, 0, qsci->length());
+  updateSymbolMarginVisibility();
+}
+
+/**
+ * @brief Scroll to a specific line with context
+ */
+void ScintillaEditor::scrollToLine(int line)
+{
+  if (!qsci) return;
+
+  // Ensure 3 lines of context above and below
+  qsci->ensureLineVisible(std::max(line - 3, 0));
+  qsci->ensureLineVisible(std::min(line + 3, qsci->lines() - 1));
+  qsci->setCursorPosition(line, 0);
 }
