@@ -51,6 +51,10 @@ class Preferences;
 class ProgressWidget;
 class ThrownTogetherRenderer;
 
+namespace Claude {
+class Widget;
+}
+
 #include "core/Tree.h"
 #include "geometry/Geometry.h"
 #include "gui/Editor.h"
@@ -99,6 +103,7 @@ public:
   Tree tree;
   EditorInterface *activeEditor;
   TabManager *tabManager;
+  Claude::Widget *claudeWidget;
 
   std::shared_ptr<const Geometry> rootGeom;
   std::shared_ptr<Renderer> geomRenderer;

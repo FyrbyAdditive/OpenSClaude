@@ -182,6 +182,9 @@ void Preferences::init()
   this->defaultmap["view/hideCustomizer"] = true;
   this->defaultmap["view/hideFontList"] = true;
   this->defaultmap["view/hideViewportControl"] = true;
+  this->defaultmap["view/hideClaude"] = true;
+  this->defaultmap["claude/apiKey"] = "";
+  this->defaultmap["claude/defaultModel"] = "claude-sonnet-4-20250514";
   this->defaultmap["editor/enableAutocomplete"] = true;
   this->defaultmap["editor/characterThreshold"] = 1;
   this->defaultmap["editor/stepSize"] = 1;

@@ -212,6 +212,11 @@ SettingsEntryString Settings::octoPrintSlicerEngine("printing", "octoPrintSlicer
 SettingsEntryString Settings::octoPrintSlicerEngineDesc("printing", "octoPrintSlicerEngineDesc", "");
 SettingsEntryString Settings::octoPrintSlicerProfile("printing", "octoPrintSlicerProfile", "");
 SettingsEntryString Settings::octoPrintSlicerProfileDesc("printing", "octoPrintSlicerProfileDesc", "");
+
+// Claude AI integration
+SettingsEntryString Settings::claudeApiKey("claude", "apiKey", "");
+SettingsEntryString Settings::claudeDefaultModel("claude", "defaultModel", "claude-sonnet-4-20250514");
+
 SettingsEntryEnum<std::string> Settings::octoPrintFileFormat(
   "printing", "octoPrintFileFormat",
   createFileFormatItems({FileFormat::ASCII_STL, FileFormat::BINARY_STL, FileFormat::_3MF,

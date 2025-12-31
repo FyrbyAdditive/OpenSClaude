@@ -417,6 +417,10 @@ public:
   static SettingsEntryString octoPrintSlicerProfile;
   static SettingsEntryString octoPrintSlicerProfileDesc;
 
+  // Claude AI integration
+  static SettingsEntryString claudeApiKey;
+  static SettingsEntryString claudeDefaultModel;
+
   static SettingsEntryString localAppExecutable;
   static SettingsEntryString localAppTempDir;
   static SettingsEntryList<LocalAppParameter> localAppParameterList;

@@ -135,6 +135,7 @@
 #include "gui/ScintillaEditor.h"
 #include "gui/TabManager.h"
 #include "gui/UIUtils.h"
+#include "gui/claude/ClaudeWidget.h"
 #include "io/dxfdim.h"
 #include "io/export.h"
 #include "io/fileutils.h"
@@ -291,7 +292,8 @@ MainWindow::MainWindow(const QStringList& filenames) : rubberBandManager(this)
            {errorLogDock, _("Error-Log"), "view/hideErrorLog"},
            {animateDock, _("Animate"), "view/hideAnimate"},
            {fontListDock, _("Font Lists"), "view/hideFontList"},
-           {viewportControlDock, _("Viewport-Control"), "view/hideViewportControl"}};
+           {viewportControlDock, _("Viewport-Control"), "view/hideViewportControl"},
+           {claudeDock, _("Claude AI"), "view/hideClaude"}};
 
   this->versionLabel = nullptr;  // must be initialized before calling updateStatusBar()
   updateStatusBar(nullptr);
@@ -313,6 +315,10 @@ MainWindow::MainWindow(const QStringList& filenames) : rubberBandManager(this)
   // Any code dependent on Preferences must come after the TabManager instantiation
   tabManager = new TabManager(this, filenames.isEmpty() ? QString() : filenames[0]);
   editorDockContents->layout()->addWidget(tabManager->getTabContent());
+
+  // Claude AI widget
+  claudeWidget = new Claude::Widget(this);
+  claudeDockContents->layout()->addWidget(claudeWidget);
 
   connect(this, &MainWindow::highlightError, tabManager, &TabManager::highlightError);
   connect(this, &MainWindow::unhighlightLastError, tabManager, &TabManager::unhighlightLastError);
@@ -3450,6 +3456,10 @@ void MainWindow::onTabManagerEditorChanged(EditorInterface *newEditor)
   animateDock->setNameSuffix(name);
   fontListDock->setNameSuffix(name);
   viewportControlDock->setNameSuffix(name);
+  claudeDock->setNameSuffix(name);
+
+  // Update Claude widget with new editor
+  claudeWidget->setEditor(newEditor);
 
   // If there is no renderedEditor we request for a new preview if the
   // auto-reload is enabled.

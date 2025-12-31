@@ -684,6 +684,30 @@
     </layout>
    </widget>
   </widget>
+  <widget class="Dock" name="claudeDock">
+   <attribute name="dockWidgetArea">
+    <number>8</number>
+   </attribute>
+   <widget class="QWidget" name="claudeDockContents">
+    <property name="focusPolicy">
+     <enum>Qt::StrongFocus</enum>
+    </property>
+    <layout class="QVBoxLayout" name="verticalLayout_Claude">
+     <property name="leftMargin">
+      <number>0</number>
+     </property>
+     <property name="topMargin">
+      <number>0</number>
+     </property>
+     <property name="rightMargin">
+      <number>0</number>
+     </property>
+     <property name="bottomMargin">
+      <number>0</number>
+     </property>
+    </layout>
+   </widget>
+  </widget>
   <action name="fileActionNew">
    <property name="icon">
     <iconset theme="chokusen-new">
