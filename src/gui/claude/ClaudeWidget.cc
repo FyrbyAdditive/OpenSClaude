@@ -108,6 +108,11 @@ void Widget::setupUi()
   chatArea_->setWidget(chatContainer_);
   mainLayout->addWidget(chatArea_, 1);
 
+  // Activity widget (transient tool status)
+  activityWidget_ = new ActivityWidget();
+  activityWidget_->hide();
+  mainLayout->addWidget(activityWidget_);
+
   // Input area
   auto *inputLayout = new QHBoxLayout();
   inputLayout->setSpacing(4);
@@ -299,6 +304,8 @@ void Widget::onSettingsClicked()
 
 void Widget::onStreamStarted()
 {
+  activityWidget_->clear();
+  activityWidget_->show();
   startStreamingBubble();
 }
 
@@ -321,7 +328,8 @@ void Widget::onToolUseStarted(const QString& toolId, const QString& toolName)
     }
   }
 
-  appendToStreamingBubble(QString("\n[Using tool: %1...]\n").arg(toolName));
+  // Show human-friendly status in activity widget
+  activityWidget_->addTool(toolName);
 }
 
 void Widget::onToolUseInputDelta(const QString& toolId, const QString& partialJson)
@@ -353,6 +361,9 @@ void Widget::onToolUseComplete(const QString& toolId, const QString& toolName, c
   pending.input = input;
   pendingToolUses_.append(pending);
 
+  // Mark tool complete in activity widget (will show checkmark)
+  activityWidget_->completeTool(toolName, true);
+
   // Clear streaming state
   currentStreamingToolName_.clear();
   streamingToolJson_.clear();
@@ -371,6 +382,9 @@ void Widget::onToolUseComplete(const QString& toolId, const QString& toolName, c
 void Widget::onMessageComplete(const QJsonObject& message)
 {
   finalizeStreamingBubble();
+
+  // Hide activity widget (tool status no longer needed)
+  activityWidget_->hide();
 
   isStreaming_ = false;
   updateSendButtonState();
@@ -456,30 +470,19 @@ void Widget::onHistoryChanged()
     delete item;
   }
 
-  // Add messages from history
+  // Add messages from history (skip tool messages - they're transient)
   for (const Message& msg : history_->messages()) {
-    QString role;
-    QString content = msg.content;
-
     switch (msg.role) {
       case Message::Role::User:
-        role = "user";
+        addMessageBubble("user", msg.content);
         break;
       case Message::Role::Assistant:
-        role = "assistant";
+        addMessageBubble("assistant", msg.content);
         break;
       case Message::Role::ToolUse:
-        role = "tool";
-        content = QString("[Tool: %1]").arg(msg.toolName);
-        break;
       case Message::Role::ToolResult:
-        role = "tool-result";
-        content = QString("[Result: %1]").arg(msg.content.left(100));
+        // Skip - tool activity is transient, not shown in history
         break;
-    }
-
-    if (!content.isEmpty()) {
-      addMessageBubble(role, content);
     }
   }
 
@@ -612,14 +615,46 @@ void Widget::appendToStreamingBubble(const QString& text)
 
 void Widget::finalizeStreamingBubble()
 {
+  if (currentStreamingBubble_) {
+    // Add collapsed tool summary if any tools were used
+    QString toolSummary = buildToolSummaryHtml();
+    if (!toolSummary.isEmpty()) {
+      QString html = QString(
+        "<div style='background-color: #f5f5f5; padding: 8px; border-radius: 8px;'>"
+        "%1%2</div>"
+      ).arg(currentStreamingText_.toHtmlEscaped().replace("\n", "<br>"), toolSummary);
+      currentStreamingBubble_->setHtml(html);
+
+      // Recalculate height
+      currentStreamingBubble_->document()->setTextWidth(currentStreamingBubble_->viewport()->width());
+      int docHeight = currentStreamingBubble_->document()->size().height();
+      currentStreamingBubble_->setFixedHeight(qMax(40, docHeight + 20));
+    }
+  }
+
   currentStreamingBubble_ = nullptr;
   currentStreamingText_.clear();
 }
 
-void Widget::addToolUseBubble(const QString& toolName, const QString& result)
+QString Widget::buildToolSummaryHtml() const
 {
-  QString content = QString("[%1]\n%2").arg(toolName, result.left(200));
-  addMessageBubble("tool-result", content);
+  QStringList tools = activityWidget_->executedTools();
+  if (tools.isEmpty()) {
+    return QString();
+  }
+
+  QString toolList;
+  for (const QString& tool : tools) {
+    toolList += QString("<div style='margin-left: 16px;'>\u2713 %1</div>")
+      .arg(ActivityWidget::humanReadableName(tool));
+  }
+
+  return QString(
+    "<details style='margin-top: 8px; font-size: 11px; color: #666;'>"
+    "<summary style='cursor: pointer;'>\u25B6 Used %1 tool%2</summary>"
+    "%3"
+    "</details>"
+  ).arg(tools.size()).arg(tools.size() == 1 ? "" : "s").arg(toolList);
 }
 
 void Widget::processToolUse(const QString& toolId, const QString& toolName, const QJsonObject& input)
@@ -628,7 +663,7 @@ void Widget::processToolUse(const QString& toolId, const QString& toolName, cons
   ToolResult result = toolHandler_->executeTool(toolName, input);
   qDebug() << "Claude: Tool result - success:" << result.success << "error:" << result.isError;
 
-  // Add tool result to history
+  // Add tool result to history (for API context, not displayed as bubble)
   Message toolResultMsg;
   toolResultMsg.role = Message::Role::ToolResult;
   toolResultMsg.toolId = toolId;
@@ -636,8 +671,7 @@ void Widget::processToolUse(const QString& toolId, const QString& toolName, cons
   toolResultMsg.isError = result.isError;
   history_->addMessage(toolResultMsg);
 
-  // Show tool result in UI
-  addToolUseBubble(toolName, result.content);
+  // Tool results are shown transiently in activity widget, not as permanent bubbles
 }
 
 void Widget::sendToolResult(const QString& toolId, const QString& result, bool isError)

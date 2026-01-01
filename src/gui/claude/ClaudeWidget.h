@@ -27,6 +27,7 @@
 #include "ClaudeHistory.h"
 #include "ClaudeMessage.h"
 #include "ClaudeSettingsDialog.h"
+#include "ClaudeActivityWidget.h"
 
 class MainWindow;
 class EditorInterface;
@@ -72,7 +73,8 @@ private:
   void startStreamingBubble();
   void appendToStreamingBubble(const QString& text);
   void finalizeStreamingBubble();
-  void addToolUseBubble(const QString& toolName, const QString& result);
+
+  QString buildToolSummaryHtml() const;
 
   void sendCurrentMessage();
   void processToolUse(const QString& toolId, const QString& toolName, const QJsonObject& input);
@@ -98,6 +100,7 @@ private:
   QPlainTextEdit *inputEdit_;
   QPushButton *sendButton_;
   QPushButton *stopButton_;
+  ActivityWidget *activityWidget_;
 
   // Backend components
   ApiClient *apiClient_;

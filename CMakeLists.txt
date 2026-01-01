@@ -1309,6 +1309,7 @@ set(GUI_SOURCES
   src/gui/UIUtils.cc
   src/gui/WindowManager.cc
   src/gui/IgnoreWheelWhenNotFocused.cc
+  src/gui/claude/ClaudeActivityWidget.cc
   src/gui/claude/ClaudeApiClient.cc
   src/gui/claude/ClaudeHistory.cc
   src/gui/claude/ClaudeSettingsDialog.cc
