@@ -19,6 +19,7 @@
 #include <QNetworkReply>
 #include <QByteArray>
 #include <QTimer>
+#include <QPointer>
 
 namespace Claude {
 
@@ -70,7 +71,7 @@ private:
   void handleMessageDelta(const QJsonObject& data);
 
   QNetworkAccessManager *nam_;
-  QNetworkReply *currentReply_{nullptr};
+  QPointer<QNetworkReply> currentReply_;
   QString apiKey_;
 
   // SSE parsing state

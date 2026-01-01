@@ -46,6 +46,7 @@ public:
 
 public slots:
   void onSendClicked();
+  void onStopClicked();
   void onClearHistory();
   void onSettingsClicked();
 
@@ -96,6 +97,7 @@ private:
   QVBoxLayout *messagesLayout_;
   QPlainTextEdit *inputEdit_;
   QPushButton *sendButton_;
+  QPushButton *stopButton_;
 
   // Backend components
   ApiClient *apiClient_;

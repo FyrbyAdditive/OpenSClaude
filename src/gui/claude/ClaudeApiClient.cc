@@ -126,13 +126,25 @@ void ApiClient::sendMessage(const QString& modelId,
 void ApiClient::cancelRequest()
 {
   // Stop any pending retry
-  retryTimer_->stop();
+  if (retryTimer_) {
+    retryTimer_->stop();
+  }
   retryCount_ = 0;
 
-  if (currentReply_) {
-    currentReply_->abort();
-    currentReply_->deleteLater();
-    currentReply_ = nullptr;
+  // QPointer automatically becomes null if the object was already deleted
+  // Take the pointer atomically and clear immediately
+  QNetworkReply *reply = currentReply_.data();
+  currentReply_.clear();
+
+  if (reply) {
+    // Block all signals from this reply to prevent any callbacks during cleanup
+    reply->blockSignals(true);
+
+    // Abort the request
+    reply->abort();
+
+    // Schedule for deletion - safe now that signals are blocked
+    reply->deleteLater();
   }
 }
 
@@ -173,7 +185,7 @@ void ApiClient::onFinished()
 
   // Clean up reply BEFORE emitting signal, so slot can start a new request
   currentReply_->deleteLater();
-  currentReply_ = nullptr;
+  currentReply_.clear();
 
   emit messageComplete(currentMessage_);
 }
@@ -222,7 +234,7 @@ void ApiClient::onError(QNetworkReply::NetworkError error)
 
     // Clean up current reply
     currentReply_->deleteLater();
-    currentReply_ = nullptr;
+    currentReply_.clear();
 
     // Schedule retry
     retryCount_++;
@@ -258,7 +270,7 @@ void ApiClient::onError(QNetworkReply::NetworkError error)
   emit errorOccurred(errorMsg);
 
   currentReply_->deleteLater();
-  currentReply_ = nullptr;
+  currentReply_.clear();
 }
 
 void ApiClient::onRetryTimer()

@@ -123,6 +123,13 @@ void Widget::setupUi()
   connect(sendButton_, &QPushButton::clicked, this, &Widget::onSendClicked);
   inputLayout->addWidget(sendButton_);
 
+  stopButton_ = new QPushButton("Stop");
+  stopButton_->setStyleSheet("QPushButton { background-color: #c0392b; color: white; }");
+  stopButton_->setToolTip("Stop Claude's response");
+  stopButton_->hide();  // Hidden by default, shown during streaming
+  connect(stopButton_, &QPushButton::clicked, this, &Widget::onStopClicked);
+  inputLayout->addWidget(stopButton_);
+
   mainLayout->addLayout(inputLayout);
 
   // Handle Enter key in input
@@ -205,6 +212,33 @@ void Widget::sendCurrentMessage()
   updateSendButtonState();
   statusLabel_->setText("Thinking...");
   statusLabel_->setStyleSheet("color: blue;");
+}
+
+void Widget::onStopClicked()
+{
+  if (!isStreaming_) return;
+
+  // Cancel the API request
+  apiClient_->cancelRequest();
+
+  // Finalize any streaming bubble with a note
+  if (currentStreamingBubble_) {
+    currentStreamingText_ += "\n\n[Stopped by user]";
+    currentStreamingBubble_->setHtml(
+      QString("<div style='background-color: #f0f0f0; padding: 8px; border-radius: 8px;'>"
+              "<b>Claude:</b><br>%1</div>")
+      .arg(currentStreamingText_.toHtmlEscaped().replace("\n", "<br>")));
+    currentStreamingBubble_ = nullptr;
+  }
+
+  // Clear pending tool uses
+  pendingToolUses_.clear();
+
+  // Reset streaming state
+  isStreaming_ = false;
+  updateSendButtonState();
+  statusLabel_->setText("Stopped");
+  statusLabel_->setStyleSheet("color: orange;");
 }
 
 void Widget::onClearHistory()
@@ -456,6 +490,8 @@ void Widget::updateSendButtonState()
 {
   bool canSend = apiClient_->isConfigured() && !isStreaming_;
   sendButton_->setEnabled(canSend);
+  sendButton_->setVisible(!isStreaming_);
+  stopButton_->setVisible(isStreaming_);
   inputEdit_->setEnabled(!isStreaming_);
 }
 
