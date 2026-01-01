@@ -14,7 +14,7 @@
 #include <QScrollBar>
 #include <QTimer>
 #include <QMessageBox>
-#include <QInputDialog>
+#include <QDir>
 
 #include "gui/MainWindow.h"
 #include "gui/Editor.h"
@@ -84,15 +84,10 @@ void Widget::setupUi()
 
   headerLayout->addStretch();
 
-  clearButton_ = new QToolButton();
-  clearButton_->setText("Clear");
-  clearButton_->setToolTip("Clear chat history");
-  connect(clearButton_, &QToolButton::clicked, this, &Widget::onClearHistory);
-  headerLayout->addWidget(clearButton_);
-
   settingsButton_ = new QToolButton();
-  settingsButton_->setText("API Key");
-  settingsButton_->setToolTip("Configure API key");
+  settingsButton_->setText("\u2699");  // Gear icon
+  settingsButton_->setToolTip("Claude Settings");
+  settingsButton_->setStyleSheet("QToolButton { font-size: 16px; }");
   connect(settingsButton_, &QToolButton::clicked, this, &Widget::onSettingsClicked);
   headerLayout->addWidget(settingsButton_);
 
@@ -225,18 +220,45 @@ void Widget::onClearHistory()
 
 void Widget::onSettingsClicked()
 {
-  bool ok;
-  QString currentKey = apiClient_->apiKey();
-  QString maskedKey = currentKey.isEmpty() ? "" : QString(currentKey.length(), '*');
+  SettingsDialog dialog(apiClient_, this);
 
-  QString apiKey = QInputDialog::getText(this, "Claude API Key",
-    "Enter your Anthropic API key:\n(Get one at console.anthropic.com)",
-    QLineEdit::Password, currentKey, &ok);
+  // Load current settings
+  dialog.setApiKey(apiClient_->apiKey());
+  dialog.setDefaultModel(modelSelector_->currentData().toString());
+  dialog.setAutoValidate(Settings::Settings::claudeAutoValidate.value());
 
-  if (ok && !apiKey.isEmpty()) {
-    setApiKey(apiKey);
-    // Save to settings and persist
-    Settings::Settings::claudeApiKey.setValue(apiKey.toStdString());
+  // Connect clear history signal
+  connect(&dialog, &SettingsDialog::clearHistoryRequested, this, [this]() {
+    // Clear all history files in the claude history directory
+    QString historyDir = QDir::homePath() + "/.openscad/claude_history";
+    QDir dir(historyDir);
+    if (dir.exists()) {
+      dir.removeRecursively();
+      dir.mkpath(".");
+    }
+    history_->clear();
+  });
+
+  if (dialog.exec() == QDialog::Accepted) {
+    // Apply API key
+    QString newKey = dialog.apiKey();
+    if (newKey != apiClient_->apiKey()) {
+      setApiKey(newKey);
+      Settings::Settings::claudeApiKey.setValue(newKey.toStdString());
+    }
+
+    // Apply default model
+    QString newModel = dialog.defaultModel();
+    int modelIndex = modelSelector_->findData(newModel);
+    if (modelIndex >= 0) {
+      modelSelector_->setCurrentIndex(modelIndex);
+      Settings::Settings::claudeDefaultModel.setValue(newModel.toStdString());
+    }
+
+    // Apply auto-validate setting
+    Settings::Settings::claudeAutoValidate.setValue(dialog.autoValidate());
+
+    // Persist all settings
     Settings::Settings::visit(SettingsWriter());
   }
 }

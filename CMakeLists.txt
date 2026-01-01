@@ -1311,6 +1311,7 @@ set(GUI_SOURCES
   src/gui/IgnoreWheelWhenNotFocused.cc
   src/gui/claude/ClaudeApiClient.cc
   src/gui/claude/ClaudeHistory.cc
+  src/gui/claude/ClaudeSettingsDialog.cc
   src/gui/claude/ClaudeToolHandler.cc
   src/gui/claude/ClaudeWidget.cc
   src/gui/input/AxisConfigWidget.cc

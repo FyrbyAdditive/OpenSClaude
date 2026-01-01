@@ -216,6 +216,7 @@ SettingsEntryString Settings::octoPrintSlicerProfileDesc("printing", "octoPrintS
 // Claude AI integration
 SettingsEntryString Settings::claudeApiKey("claude", "apiKey", "");
 SettingsEntryString Settings::claudeDefaultModel("claude", "defaultModel", "claude-sonnet-4-20250514");
+SettingsEntryBool Settings::claudeAutoValidate("claude", "autoValidate", false);
 
 SettingsEntryEnum<std::string> Settings::octoPrintFileFormat(
   "printing", "octoPrintFileFormat",

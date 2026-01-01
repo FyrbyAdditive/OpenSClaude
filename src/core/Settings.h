@@ -420,6 +420,7 @@ public:
   // Claude AI integration
   static SettingsEntryString claudeApiKey;
   static SettingsEntryString claudeDefaultModel;
+  static SettingsEntryBool claudeAutoValidate;
 
   static SettingsEntryString localAppExecutable;
   static SettingsEntryString localAppTempDir;

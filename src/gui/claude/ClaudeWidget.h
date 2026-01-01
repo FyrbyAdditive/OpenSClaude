@@ -26,6 +26,7 @@
 #include "ClaudeToolHandler.h"
 #include "ClaudeHistory.h"
 #include "ClaudeMessage.h"
+#include "ClaudeSettingsDialog.h"
 
 class MainWindow;
 class EditorInterface;
@@ -90,7 +91,6 @@ private:
   QComboBox *modelSelector_;
   QLabel *statusLabel_;
   QToolButton *settingsButton_;
-  QToolButton *clearButton_;
   QScrollArea *chatArea_;
   QWidget *chatContainer_;
   QVBoxLayout *messagesLayout_;
