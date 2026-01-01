@@ -220,6 +220,65 @@ QJsonArray ToolHandler::getToolDefinitions() const
     tools.append(tool);
   }
 
+  // edit_lines
+  {
+    QJsonObject tool;
+    tool["name"] = "edit_lines";
+    tool["description"] = "Replace a range of lines in the editor with new content. More efficient than replacing the entire file when making targeted edits.";
+    QJsonObject inputSchema;
+    inputSchema["type"] = "object";
+    QJsonObject props;
+    QJsonObject startProp;
+    startProp["type"] = "integer";
+    startProp["description"] = "Starting line number (1-indexed)";
+    props["start_line"] = startProp;
+    QJsonObject endProp;
+    endProp["type"] = "integer";
+    endProp["description"] = "Ending line number (inclusive, 1-indexed)";
+    props["end_line"] = endProp;
+    QJsonObject contentProp;
+    contentProp["type"] = "string";
+    contentProp["description"] = "The new content to replace the specified lines with";
+    props["content"] = contentProp;
+    inputSchema["properties"] = props;
+    QJsonArray required;
+    required.append("start_line");
+    required.append("end_line");
+    required.append("content");
+    inputSchema["required"] = required;
+    tool["input_schema"] = inputSchema;
+    tools.append(tool);
+  }
+
+  // search_replace
+  {
+    QJsonObject tool;
+    tool["name"] = "search_replace";
+    tool["description"] = "Find and replace text in the editor. Can replace first occurrence or all occurrences.";
+    QJsonObject inputSchema;
+    inputSchema["type"] = "object";
+    QJsonObject props;
+    QJsonObject findProp;
+    findProp["type"] = "string";
+    findProp["description"] = "The text to search for";
+    props["find"] = findProp;
+    QJsonObject replaceProp;
+    replaceProp["type"] = "string";
+    replaceProp["description"] = "The text to replace with";
+    props["replace"] = replaceProp;
+    QJsonObject allProp;
+    allProp["type"] = "boolean";
+    allProp["description"] = "If true, replace all occurrences. If false (default), replace only the first occurrence.";
+    props["replace_all"] = allProp;
+    inputSchema["properties"] = props;
+    QJsonArray required;
+    required.append("find");
+    required.append("replace");
+    inputSchema["required"] = required;
+    tool["input_schema"] = inputSchema;
+    tools.append(tool);
+  }
+
   return tools;
 }
 
@@ -250,6 +309,16 @@ ToolResult ToolHandler::executeTool(const QString& toolName, const QJsonObject& 
     return getModelStats();
   } else if (toolName == "list_modules") {
     return listModules();
+  } else if (toolName == "edit_lines") {
+    int startLine = input["start_line"].toInt();
+    int endLine = input["end_line"].toInt();
+    QString content = input["content"].toString();
+    return editLines(startLine, endLine, content);
+  } else if (toolName == "search_replace") {
+    QString find = input["find"].toString();
+    QString replace = input["replace"].toString();
+    bool replaceAll = input.contains("replace_all") ? input["replace_all"].toBool() : false;
+    return searchReplace(find, replace, replaceAll);
   }
 
   return {false, QString("Unknown tool: %1").arg(toolName), true};
@@ -503,6 +572,85 @@ ToolResult ToolHandler::listModules()
 
   result = QString("Found %1 module(s):\n\n").arg(count) + result;
   return {true, result.trimmed(), false};
+}
+
+ToolResult ToolHandler::editLines(int startLine, int endLine, const QString& content)
+{
+  EditorInterface *editor = activeEditor();
+  if (!editor) {
+    return {false, "No active editor", true};
+  }
+
+  QString text = editor->toPlainText();
+  QStringList lines = text.split('\n');
+
+  // Validate line numbers (1-indexed)
+  if (startLine < 1) {
+    return {false, QString("Invalid start line: %1 (must be >= 1)").arg(startLine), true};
+  }
+  if (endLine < startLine) {
+    return {false, QString("End line (%1) must be >= start line (%2)").arg(endLine).arg(startLine), true};
+  }
+  if (startLine > lines.size()) {
+    return {false, QString("Start line %1 exceeds file length (%2 lines)").arg(startLine).arg(lines.size()), true};
+  }
+
+  // Clamp end line to file length
+  if (endLine > lines.size()) {
+    endLine = lines.size();
+  }
+
+  // Remove the specified line range (convert to 0-indexed)
+  for (int i = endLine - 1; i >= startLine - 1; --i) {
+    lines.removeAt(i);
+  }
+
+  // Insert new content at the start position
+  QStringList newLines = content.split('\n');
+  for (int i = newLines.size() - 1; i >= 0; --i) {
+    lines.insert(startLine - 1, newLines[i]);
+  }
+
+  editor->setText(lines.join('\n'));
+
+  int linesRemoved = endLine - startLine + 1;
+  int linesAdded = newLines.size();
+  return {true, QString("Replaced %1 line(s) with %2 line(s) at lines %3-%4")
+    .arg(linesRemoved).arg(linesAdded).arg(startLine).arg(endLine), false};
+}
+
+ToolResult ToolHandler::searchReplace(const QString& find, const QString& replace, bool replaceAll)
+{
+  EditorInterface *editor = activeEditor();
+  if (!editor) {
+    return {false, "No active editor", true};
+  }
+
+  if (find.isEmpty()) {
+    return {false, "Search string is empty", true};
+  }
+
+  QString content = editor->toPlainText();
+  int count = 0;
+
+  if (replaceAll) {
+    count = content.count(find);
+    if (count == 0) {
+      return {true, QString("No occurrences of '%1' found").arg(find), false};
+    }
+    content.replace(find, replace);
+  } else {
+    int pos = content.indexOf(find);
+    if (pos < 0) {
+      return {true, QString("No occurrences of '%1' found").arg(find), false};
+    }
+    content.replace(pos, find.length(), replace);
+    count = 1;
+  }
+
+  editor->setText(content);
+  return {true, QString("Replaced %1 occurrence(s) of '%2' with '%3'")
+    .arg(count).arg(find).arg(replace), false};
 }
 
 } // namespace Claude

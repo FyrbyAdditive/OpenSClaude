@@ -54,6 +54,8 @@ private:
   ToolResult getFilePath();
   ToolResult getModelStats();
   ToolResult listModules();
+  ToolResult editLines(int startLine, int endLine, const QString& content);
+  ToolResult searchReplace(const QString& find, const QString& replace, bool replaceAll);
 
   EditorInterface* activeEditor() const;
 
