@@ -52,6 +52,8 @@ private:
   ToolResult getConsole(int maxLines);
   ToolResult getErrors();
   ToolResult getFilePath();
+  ToolResult getModelStats();
+  ToolResult listModules();
 
   EditorInterface* activeEditor() const;
 

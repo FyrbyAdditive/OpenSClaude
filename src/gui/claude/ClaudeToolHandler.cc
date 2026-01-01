@@ -14,11 +14,17 @@
 #include <QMetaObject>
 #include <QPlainTextEdit>
 #include <QStandardItemModel>
+#include <QRegularExpression>
 
 #include "gui/MainWindow.h"
 #include "gui/Editor.h"
 #include "gui/Console.h"
 #include "gui/ErrorLog.h"
+#include "geometry/Geometry.h"
+#include "geometry/PolySet.h"
+#ifdef ENABLE_MANIFOLD
+#include "geometry/manifold/ManifoldGeometry.h"
+#endif
 
 namespace Claude {
 
@@ -188,6 +194,32 @@ QJsonArray ToolHandler::getToolDefinitions() const
     tools.append(tool);
   }
 
+  // get_model_stats
+  {
+    QJsonObject tool;
+    tool["name"] = "get_model_stats";
+    tool["description"] = "Get statistics about the currently rendered 3D model including vertices, faces, and bounding box dimensions. Requires a render to have been completed first.";
+    QJsonObject inputSchema;
+    inputSchema["type"] = "object";
+    inputSchema["properties"] = QJsonObject();
+    inputSchema["required"] = QJsonArray();
+    tool["input_schema"] = inputSchema;
+    tools.append(tool);
+  }
+
+  // list_modules
+  {
+    QJsonObject tool;
+    tool["name"] = "list_modules";
+    tool["description"] = "List all module definitions in the current file. Returns module names and their parameters.";
+    QJsonObject inputSchema;
+    inputSchema["type"] = "object";
+    inputSchema["properties"] = QJsonObject();
+    inputSchema["required"] = QJsonArray();
+    tool["input_schema"] = inputSchema;
+    tools.append(tool);
+  }
+
   return tools;
 }
 
@@ -214,6 +246,10 @@ ToolResult ToolHandler::executeTool(const QString& toolName, const QJsonObject& 
     return getErrors();
   } else if (toolName == "get_file_path") {
     return getFilePath();
+  } else if (toolName == "get_model_stats") {
+    return getModelStats();
+  } else if (toolName == "list_modules") {
+    return listModules();
   }
 
   return {false, QString("Unknown tool: %1").arg(toolName), true};
@@ -366,6 +402,107 @@ ToolResult ToolHandler::getFilePath()
     return {true, "(unsaved file)", false};
   }
   return {true, path, false};
+}
+
+ToolResult ToolHandler::getModelStats()
+{
+  auto geom = mainWindow_->rootGeom;
+  if (!geom) {
+    return {true, "(no geometry - run preview or render first)", false};
+  }
+
+  QString result;
+
+  // Get bounding box
+  BoundingBox bbox = geom->getBoundingBox();
+  if (!bbox.isEmpty()) {
+    double width = bbox.max().x() - bbox.min().x();
+    double depth = bbox.max().y() - bbox.min().y();
+    double height = bbox.max().z() - bbox.min().z();
+
+    result += QString("Bounding Box:\n");
+    result += QString("  Min: (%.3f, %.3f, %.3f)\n").arg(bbox.min().x()).arg(bbox.min().y()).arg(bbox.min().z());
+    result += QString("  Max: (%.3f, %.3f, %.3f)\n").arg(bbox.max().x()).arg(bbox.max().y()).arg(bbox.max().z());
+    result += QString("  Size: %.3f x %.3f x %.3f\n").arg(width).arg(depth).arg(height);
+  }
+
+  // Get geometry-specific stats
+  if (auto ps = std::dynamic_pointer_cast<const PolySet>(geom)) {
+    result += QString("\nGeometry Type: PolySet\n");
+    result += QString("  Triangular: %1\n").arg(ps->isTriangular() ? "yes" : "no");
+    result += QString("  Convex: %1\n").arg(ps->isConvex() ? "yes" : "no");
+    result += QString("  Facets: %1\n").arg(ps->numFacets());
+  }
+#ifdef ENABLE_MANIFOLD
+  else if (auto mani = std::dynamic_pointer_cast<const ManifoldGeometry>(geom)) {
+    auto& m = mani->getManifold();
+    result += QString("\nGeometry Type: Manifold\n");
+    result += QString("  Vertices: %1\n").arg(m.NumVert());
+    result += QString("  Triangles: %1\n").arg(m.NumTri());
+    result += QString("  Genus: %1\n").arg(m.Genus());
+  }
+#endif
+
+  if (result.isEmpty()) {
+    result = "(geometry stats not available for this type)";
+  }
+
+  return {true, result.trimmed(), false};
+}
+
+ToolResult ToolHandler::listModules()
+{
+  EditorInterface *editor = activeEditor();
+  if (!editor) {
+    return {false, "No active editor", true};
+  }
+
+  QString content = editor->toPlainText();
+
+  // Use regex to find module definitions
+  // Pattern: module name(params) { or module name() {
+  QRegularExpression moduleRegex(
+    R"(module\s+(\w+)\s*\(([^)]*)\))",
+    QRegularExpression::MultilineOption
+  );
+
+  QRegularExpressionMatchIterator it = moduleRegex.globalMatch(content);
+
+  QString result;
+  int count = 0;
+
+  while (it.hasNext()) {
+    QRegularExpressionMatch match = it.next();
+    QString moduleName = match.captured(1);
+    QString params = match.captured(2).trimmed();
+
+    if (params.isEmpty()) {
+      result += QString("%1()\n").arg(moduleName);
+    } else {
+      // Clean up params - remove default values for cleaner output
+      QStringList paramList = params.split(',');
+      QStringList cleanParams;
+      for (const QString& p : paramList) {
+        QString param = p.trimmed();
+        // Keep just parameter name if there's a default value
+        int eqPos = param.indexOf('=');
+        if (eqPos > 0) {
+          cleanParams << param.left(eqPos).trimmed();
+        } else {
+          cleanParams << param;
+        }
+      }
+      result += QString("%1(%2)\n").arg(moduleName, cleanParams.join(", "));
+    }
+    count++;
+  }
+
+  if (count == 0) {
+    return {true, "(no modules defined)", false};
+  }
+
+  result = QString("Found %1 module(s):\n\n").arg(count) + result;
+  return {true, result.trimmed(), false};
 }
 
 } // namespace Claude
